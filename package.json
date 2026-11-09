@@ -1,0 +1,23 @@
+{
+  "name": "nuclear-impostor",
+  "version": "1.0.0",
+  "description": "Nuclear Impostor: a 3D blocky social-deduction game where you repair a reactor by solving nuclear physics problems. Solo with bots or multiplayer over a phone hotspot.",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "build:faces": "node scripts/build-faces.js",
+    "build:www": "node scripts/build-www.js",
+    "check": "node scripts/check.js",
+    "test": "node test/relay-smoke.js",
+    "android:prepare": "npm run build:www && cap add android && cap sync android"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1"
+  },
+  "keywords": ["game", "physics", "education", "threejs", "pwa", "multiplayer"]
+}

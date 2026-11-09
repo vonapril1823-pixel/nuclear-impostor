@@ -1,0 +1,12 @@
+{
+  "appId": "com.nuclearimpostor.game",
+  "appName": "Nuclear Impostor",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

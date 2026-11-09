@@ -1,0 +1,19 @@
+{
+  "name": "Nuclear Impostor",
+  "short_name": "Nuclear Impostor",
+  "description": "A 3D blocky social-deduction game: repair the reactor by solving nuclear physics problems and find the Impostor. Solo with bots or multiplayer over a phone hotspot.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "categories": ["games", "education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

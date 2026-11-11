@@ -6,8 +6,16 @@ Play solo against bots, or with up to **10 players over a phone hotspot / Wi-Fi,
 
 ## Features
 
+- **First-person view** inside closed rooms: tall walls and a full ceiling, so you only see what is in your own room (spectators watch through the eyes of the player they follow)
+- **Impostors can use consoles** and answer questions as a disguise (their progress does not count, and wrong answers still damage the machine)
+- **Your own face**: take a photo or pick one from your device in *Customize character*; everyone in the lobby sees it on your avatar
+
+- **Impostor vents**: Impostors (bot or player) hide and travel between linked vents (V), and can kill (Q); choose 1 to 3 Impostors in the lobby or solo setup (max 1 per 3 players)
+- **Meltdown**: a console left destroyed after its emergency timer runs out counts as a failed system. **Three failed systems blow up the station** and the Impostors win
+- **Spectators see the crew's screen**: while watching, you see the question and answer options the followed crewmate is working on, live
+
 - **Character customization**: pick your color (12 choices) and your face (Classic, or any of the photo faces in `faces/`). Everyone sees it, in the lobby, in the game, on bodies and in the ejection scene
-- Third-person 3D view (drag to look, scroll or pinch to zoom, jump button), blocky avatars with a walk cycle
+- First-person 3D view (drag to look, jump button), blocky avatars with a walk cycle
 - 8 task consoles, each with 3 physics questions and an animated diagram; wrong answers damage the machine
 - **Emergency repair**: a destroyed console starts a 30-second countdown, and each wrong answer costs 5 seconds
 - Roblox-style HUD: priority-sorted task list (minimizable), minimap, and a feed announcing who finished what
@@ -40,27 +48,29 @@ node server.js          # or: npm start   (optional port: node server.js 8080)
 4. Everyone else taps **Join a lobby**, then picks the room from the list (or types the code).
 5. The host taps **Start game**.
 
-Up to **10 people** can join one room. The Impostor is always a bot, so a full 10-person game has 11 characters. If two people pick the same color the host gives the second one a free color.
+Up to **10 people** can join one room. In the lobby settings the host picks the number of Impostors, adds up to 5 bots, and chooses whether players can be Impostors (always on when there are no bots) or only bots can. If two people pick the same color the host gives the second one a free color.
 
 The host's browser runs the game (bots, kills, votes). The server only relays messages between players, so nothing is stored and no internet is used.
 
 **Using the Android app or the GitHub Pages site instead?** Pages is served over `https`, and browsers block plain `ws://` connections from `https` pages. In that case open the server's `http://…` address instead, use the Android app (it allows this), or use copy-paste codes. In the app you will be asked for the server address (for example `192.168.43.2:3000`).
 
-### Copy-paste codes (no server)
+### QR codes (no server)
 
-Choose **Option B** under Host/Join. The host creates a code per player, the friend pastes it and sends a reply code back. It works over any shared Wi-Fi or hotspot, but it is fiddlier, and some hotspots block the direct connection. The server mode is more reliable.
+Choose **Option B** under Host/Join. The host taps **+ Add player** and a QR code appears. The friend taps **Join → 📷 Scan the host's QR code**, then shows the reply QR that appears on their screen, and the host taps **📷 Scan their reply QR**. No typing and no copying.
 
-## Customize your character
+- Live scanning uses the camera when the page is opened from a file or `https`. On a plain `http://` address browsers block the live camera, so the scanner offers **📷 Take a photo of the QR** instead, which works everywhere.
+- Text codes are still there under "No camera?".
+- The server mode shows an **invite QR** in the waiting room. Friends can scan it with their normal phone camera, or tap **📷 Scan a QR code** on the main menu.
+- Without a server, some hotspots and phones block direct device-to-device links (a browser limit). If two devices will not connect, use the server mode.
 
-On the main menu tap **🎨 Customize character**: choose a color and a face, with a live preview. Your choice is saved on that device, and the host shares it with everyone when the game starts. Bots get the remaining colors and random faces.
+### Watch as a spectator (web or LAN)
 
-### Adding more faces
+Open the game in any browser on the same network (the server's `http://…` address is the web version), tap **Join a lobby**, then tap **👁 Watch** next to a room, or type its code and tap **👁 Watch**. Spectators:
+- don't use a player slot (up to 12 can watch per room, on top of the 10 players)
+- can join before the game starts **or while it is already running**
+- get the normal spectator camera: ◀ ▶ (or Q / E) to follow any living player, and they see meetings, kills and ejections
 
-1. Put square-ish photos (about 128 × 128 px, JPG, PNG or WebP) in the `faces/` folder.
-2. Run `npm run build:faces`. This rewrites `faces.js`, which is what the game loads. The file name becomes the label (`face-03.jpg` shows as "Face 3").
-3. Commit both `faces/` and `faces.js`.
-
-> **Before you publish:** the pictures in `faces/` are photos of real people. Only push them to a public GitHub repository if you have permission from everyone shown (especially students or anyone under 18). Otherwise keep the repository private, or replace them with cartoon faces.
+The GitHub Pages site is `https`, so browsers block it from reaching a LAN server. Use the server's own `http://` address for watching or playing over LAN.
 
 ## Controls
 
@@ -68,7 +78,6 @@ On the main menu tap **🎨 Customize character**: choose a color and a face, wi
 |---|---|---|
 | Move | WASD / arrows | Joystick (bottom-left) |
 | Look | Drag mouse | Drag the screen |
-| Zoom | Scroll | Pinch |
 | Jump | Space | JUMP |
 | Use a console / emergency button | E | USE |
 | Report a body | R | REPORT |
@@ -104,6 +113,8 @@ test/relay-smoke.js     relay server test (Node 22+)
 capacitor.config.json   Android wrapper settings
 .github/workflows/      CI, Pages deploy, Android APK
 ```
+
+**One-file version:** `npm run build:single` writes `dist/NuclearImpostor.html` (everything inlined, works offline by double-clicking; solo play and multiplayer through the LAN server's `http://` page).
 
 Useful commands: `npm start`, `npm run check`, `npm test`, `npm run build:faces`, `npm run build:www`.
 

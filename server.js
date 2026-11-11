@@ -25,6 +25,10 @@ const ROOT = __dirname;
 const VERSION = require('./package.json').version;
 const MAX_FRAME = 64 * 1024; // largest message we accept
 const MAX_PEERS = 9; // host + 9 = 10 players (the Impostor is always a bot)
+const MAX_SPEC = 12; // extra watch-only viewers per room
+const GRACE = 60000; // a dropped player keeps their slot this long (ms)
+const HOST_GRACE = 90000; // the room survives a dropped host this long
+const tok = () => crypto.randomBytes(8).toString('hex');
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 
 const MIME = {
@@ -124,6 +128,7 @@ class Conn {
     this.room = null;
     this.id = null;
     this.isHost = false;
+    this.spec = false;
     this.alive = true;
     this.closed = false;
     this.buf = Buffer.alloc(0);
@@ -135,6 +140,7 @@ class Conn {
     sock.on('close', () => this.onClose());
     sock.on('error', () => this.onClose());
     this.flood = setInterval(() => (this.count = 0), 1000);
+    this.hb = setInterval(() => this.send({ ev: 'hb' }), 4000); // app-level heartbeat so clients notice silent drops
     this.ping = setInterval(() => {
       if (!this.alive) return this.destroy();
       this.alive = false;
@@ -217,6 +223,7 @@ class Conn {
     this.closed = true;
     clearInterval(this.flood);
     clearInterval(this.ping);
+    clearInterval(this.hb);
     leave(this);
   }
 }
@@ -247,6 +254,14 @@ function newCode() {
   return null;
 }
 
+function applyMeta(room, m, init) {
+  if (init || m.lobby !== undefined) room.lobby = clean(m.lobby, 20) || room.hostName + "'s lobby";
+  if (init || m.pub !== undefined) room.pub = m.pub === undefined ? true : !!m.pub;
+  if (init || m.max !== undefined) room.max = Math.max(4, Math.min(MAX_PEERS + 1, parseInt(m.max, 10) || MAX_PEERS + 1));
+  if (init || m.bots !== undefined) room.bots = Math.max(0, Math.min(7, parseInt(m.bots, 10) || 0));
+}
+const players = (r) => { let n = 0; for (const p of r.peers.values()) if (!p.spec) n++; return n; };
+
 function handle(c, m) {
   switch (m.op) {
     case 'host': {
@@ -254,16 +269,22 @@ function handle(c, m) {
       const code = newCode();
       if (!code) return c.send({ ev: 'err', msg: 'Server is full.' });
       const room = { code, host: c, hostName: clean(m.name, 12) || 'Host', peers: new Map(), locked: false };
+      applyMeta(room, m, true);
       rooms.set(code, room);
       c.room = room;
       c.isHost = true;
-      c.send({ ev: 'hosted', code });
+      c.token = tok();
+      c.send({ ev: 'hosted', code, token: c.token });
       log(`room ${code} opened by ${room.hostName}`);
       break;
     }
     case 'rooms': {
       const list = [];
-      for (const r of rooms.values()) if (!r.locked && r.peers.size < MAX_PEERS) list.push({ code: r.code, host: r.hostName, n: r.peers.size + 1 });
+      for (const r of rooms.values()) {
+        const pl = players(r);
+        if (!r.pub) continue; // private rooms are joined by code only
+        list.push({ code: r.code, host: r.hostName, lobby: r.lobby, n: pl + 1, max: r.max, bots: r.bots, locked: r.locked || pl + 1 >= r.max, w: r.peers.size - pl });
+      }
       c.send({ ev: 'rooms', list });
       break;
     }
@@ -271,13 +292,78 @@ function handle(c, m) {
       if (c.room) return;
       const room = rooms.get(String(m.code || '').toUpperCase());
       if (!room) return c.send({ ev: 'err', msg: 'No lobby with that code.' });
-      if (room.locked) return c.send({ ev: 'err', msg: 'That game has already started.' });
-      if (room.peers.size >= MAX_PEERS) return c.send({ ev: 'err', msg: 'That lobby is full.' });
+      c.spec = !!m.spec;
+      if (c.spec) {
+        if (room.peers.size - players(room) >= MAX_SPEC) return c.send({ ev: 'err', msg: 'Too many spectators in that room.' });
+      } else {
+        if (room.locked) return c.send({ ev: 'err', msg: 'That game has already started.' });
+        if (players(room) >= Math.min(MAX_PEERS, room.max - 1)) return c.send({ ev: 'err', msg: 'That lobby is full.' });
+      }
       c.id = nextId++;
       c.room = room;
+      c.token = tok();
       room.peers.set(c.id, c);
-      c.send({ ev: 'joined', code: room.code, id: c.id });
+      c.send({ ev: 'joined', code: room.code, id: c.id, token: c.token });
       room.host.send({ ev: 'peer', id: c.id });
+      break;
+    }
+    case 'resume': {
+      // a device that lost its connection takes its old seat back
+      if (c.room) return;
+      const room = rooms.get(String(m.code || '').toUpperCase());
+      if (!room) return c.send({ ev: 'gone' });
+      if (m.host) {
+        if (!room.host || room.host.token !== m.token) return c.send({ ev: 'gone' });
+        const old = room.host;
+        old.replaced = true;
+        clearTimeout(room.hostTimer);
+        room.hostOff = false;
+        try { old.sock.destroy(); } catch (_) {}
+        c.isHost = true;
+        c.room = room;
+        c.token = m.token;
+        room.host = c;
+        c.send({ ev: 'resumed', host: 1, code: room.code, peers: [...room.peers.values()].map((p) => ({ id: p.id, off: !!p.off })) });
+        for (const p of room.peers.values()) p.send({ ev: 'hostback' });
+        log(`room ${room.code} host is back`);
+        return;
+      }
+      const old = room.peers.get(m.id);
+      if (!old || old.token !== m.token) return c.send({ ev: 'gone' });
+      old.replaced = true;
+      clearTimeout(old.timer);
+      try { old.sock.destroy(); } catch (_) {}
+      c.id = old.id;
+      c.spec = old.spec;
+      c.token = old.token;
+      c.room = room;
+      room.peers.set(c.id, c);
+      c.send({ ev: 'resumed', id: c.id, code: room.code, hostOff: !!room.hostOff });
+      if (!room.hostOff) room.host.send({ ev: 'back', id: c.id });
+      return;
+    }
+    case 'bye': {
+      // clean exit: no grace period
+      c.bye = true;
+      c.destroy();
+      break;
+    }
+    case 'unlock': {
+      if (c.isHost && c.room) c.room.locked = false;
+      break;
+    }
+    case 'kick': {
+      if (!c.isHost || !c.room) break;
+      const p = c.room.peers.get(m.id);
+      if (p) {
+        p.bye = true;
+        p.send({ ev: 'gone' });
+        p.destroy();
+      }
+      break;
+    }
+    case 'meta': {
+      if (c.isHost && c.room) applyMeta(c.room, m, false);
       break;
     }
     case 'lock': {
@@ -303,23 +389,52 @@ function handle(c, m) {
   }
 }
 
+function closeRoom(room) {
+  if (rooms.get(room.code) !== room) return;
+  rooms.delete(room.code);
+  clearTimeout(room.hostTimer);
+  for (const p of room.peers.values()) {
+    clearTimeout(p.timer);
+    p.room = null;
+    p.send({ ev: 'closed' });
+    try {
+      p.sock.end();
+    } catch (_) {}
+  }
+  log(`room ${room.code} closed`);
+}
+
+function dropPeer(room, c) {
+  clearTimeout(c.timer);
+  if (room.peers.get(c.id) === c) room.peers.delete(c.id);
+  c.room = null;
+  if (!room.host.closed) room.host.send({ ev: 'leave', id: c.id });
+}
+
 function leave(c) {
   const room = c.room;
-  if (!room) return;
-  c.room = null;
+  if (!room || c.replaced) return;
   if (c.isHost) {
-    rooms.delete(room.code);
-    for (const p of room.peers.values()) {
-      p.room = null;
-      p.send({ ev: 'closed' });
-      try {
-        p.sock.end();
-      } catch (_) {}
+    if (room.host !== c) return;
+    if (c.token && !c.bye) {
+      // keep the room alive so the host can come back
+      room.hostOff = true;
+      room.hostTimer = setTimeout(() => closeRoom(room), HOST_GRACE);
+      for (const p of room.peers.values()) p.send({ ev: 'hostdrop' });
+      log(`room ${room.code} host connection lost (waiting ${HOST_GRACE / 1000}s)`);
+      return;
     }
-    log(`room ${room.code} closed`);
+    c.room = null;
+    closeRoom(room);
   } else {
-    room.peers.delete(c.id);
-    if (!room.host.closed) room.host.send({ ev: 'leave', id: c.id });
+    if (room.peers.get(c.id) !== c) return;
+    if (c.token && !c.bye) {
+      c.off = true;
+      if (!room.host.closed) room.host.send({ ev: 'drop', id: c.id });
+      c.timer = setTimeout(() => dropPeer(room, c), GRACE);
+      return;
+    }
+    dropPeer(room, c);
   }
 }
 

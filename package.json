@@ -9,7 +9,8 @@
     "build:www": "node scripts/build-www.js",
     "check": "node scripts/check.js",
     "test": "node test/relay-smoke.js",
-    "android:prepare": "npm run build:www && cap add android && cap sync android"
+    "android:prepare": "npm run build:www && cap add android && cap sync android",
+    "build:single": "node scripts/build-single.js"
   },
   "engines": {
     "node": ">=16"
@@ -19,5 +20,12 @@
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1"
   },
-  "keywords": ["game", "physics", "education", "threejs", "pwa", "multiplayer"]
+  "keywords": [
+    "game",
+    "physics",
+    "education",
+    "threejs",
+    "pwa",
+    "multiplayer"
+  ]
 }

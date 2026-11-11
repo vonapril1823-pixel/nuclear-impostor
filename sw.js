@@ -2,13 +2,14 @@
  * Strategy: network-first for the page itself (so updates show up), cache-first for
  * the static assets. The relay (/ws) and /api/ are never touched.
  * Bump CACHE when you change any cached file. */
-const CACHE = 'nuclear-impostor-v3';
+const CACHE = 'nuclear-impostor-v7';
 const ASSETS = [
   './',
   'index.html',
   'manifest.webmanifest',
   'faces.js',
   'vendor/three.min.js',
+  'vendor/qr.min.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',

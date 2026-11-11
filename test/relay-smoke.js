@@ -58,7 +58,7 @@ const get = (port, p) =>
   const a = await client(port);
   a.send({ op: 'rooms' });
   const list = (await next(a, 'rooms')).list;
-  assert.deepStrictEqual(list, [{ code, host: 'Annb', n: 1 }]);
+  assert.deepStrictEqual(list, [{ code, host: 'Annb', lobby: "Annb's lobby", n: 1, max: 10, bots: 0, locked: false, w: 0 }]);
   a.send({ op: 'join', code: code.toLowerCase() });
   const ja = await next(a, 'joined');
   const pa = await next(h, 'peer');
@@ -95,12 +95,23 @@ const get = (port, p) =>
   c.send({ op: 'join', code });
   assert.match((await next(c, 'err')).msg, /already started/);
   c.send({ op: 'rooms' });
-  assert.deepStrictEqual((await next(c, 'rooms')).list, []);
+  const lk = (await next(c, 'rooms')).list;
+  assert.strictEqual(lk.length, 1);
+  assert.strictEqual(lk[0].locked, true, 'started game is flagged locked');
+  // spectators may still join a started game, and are not players
+  c.send({ op: 'join', code, spec: true });
+  const jc = await next(c, 'joined');
+  const pc = await next(h, 'peer');
+  assert.strictEqual(pc.id, jc.id);
+  c.send({ op: 'up', d: '{"t":"hi","spec":1}' });
+  assert.strictEqual((await next(h, 'msg')).id, jc.id, 'spectator can talk to the host');
+  h.send({ op: 'to', id: jc.id, d: '{"t":"snap"}' });
+  assert.strictEqual((await next(c, 'msg')).d, '{"t":"snap"}', 'host can feed the spectator');
 
   // leave / host closing
-  b.ws.close();
+  b.send({ op: 'bye' });
   assert.strictEqual((await next(h, 'leave')).id, jb.id);
-  h.ws.close();
+  h.send({ op: 'bye' });
   await next(a, 'closed');
   await wait(50);
   assert.strictEqual(rooms.size, 0);
@@ -120,11 +131,105 @@ const get = (port, p) =>
   extra.send({ op: 'join', code: fcode });
   assert.match((await next(extra, 'err')).msg, /full/);
   extra.send({ op: 'rooms' });
-  assert.deepStrictEqual((await next(extra, 'rooms')).list, [], 'a full lobby is not listed');
+  assert.strictEqual((await next(extra, 'rooms')).list[0].locked, true, 'a full lobby is flagged locked');
+  // spectators do not use player slots
+  extra.send({ op: 'join', code: fcode, spec: true });
+  await next(extra, 'joined');
   const peers = fh.got.filter((m) => m.ev === 'peer');
-  assert.strictEqual(peers.length, 9, 'host is told about all 9 players');
-  crowd.forEach((p) => p.ws.close());
-  fh.ws.close();
+  assert.strictEqual(peers.length, 10, 'host is told about all 9 players plus the spectator');
+  crowd.forEach((p) => p.send({ op: 'bye' }));
+  fh.send({ op: 'bye' });
+
+  // private rooms are not listed; max players is enforced; meta updates the list
+  const ph = await client(port);
+  ph.send({ op: 'host', name: 'Priv', lobby: 'Secret', pub: false, max: 4 });
+  const pcode = (await next(ph, 'hosted')).code;
+  const lk2 = await client(port);
+  lk2.send({ op: 'rooms' });
+  assert.ok(!(await next(lk2, 'rooms')).list.some((r) => r.code === pcode), 'private room hidden');
+  const pj = [];
+  for (let i = 0; i < 3; i++) {
+    const q = await client(port);
+    q.send({ op: 'join', code: pcode });
+    await next(q, 'joined');
+    pj.push(q);
+  }
+  const q4 = await client(port);
+  q4.send({ op: 'join', code: pcode });
+  assert.match((await next(q4, 'err')).msg, /full/, 'max 4 players enforced');
+  ph.send({ op: 'meta', pub: true, bots: 2, lobby: 'Open now' });
+  await wait(50);
+  lk2.send({ op: 'rooms' });
+  const shown = (await next(lk2, 'rooms')).list.find((r) => r.code === pcode);
+  assert.ok(shown && shown.bots === 2 && shown.lobby === 'Open now' && shown.max === 4 && shown.locked === true);
+  pj.forEach((q) => q.send({ op: 'bye' }));
+  ph.send({ op: 'bye' });
+
+  // ---- dropped connections: seats are kept, devices can resume ----
+  {
+    const h2 = await client(port);
+    h2.send({ op: 'host', name: 'Resume' });
+    const hc = await next(h2, 'hosted');
+    assert.ok(hc.token, 'host gets a resume token');
+    const p1 = await client(port);
+    p1.send({ op: 'join', code: hc.code });
+    const j1 = await next(p1, 'joined');
+    assert.ok(j1.token, 'player gets a resume token');
+    await next(h2, 'peer');
+    h2.send({ op: 'lock' });
+
+    // player's socket dies: host hears "drop", seat stays reserved
+    p1.ws.close();
+    assert.strictEqual((await next(h2, 'drop')).id, j1.id);
+    const p1b = await client(port);
+    p1b.send({ op: 'resume', code: hc.code, id: j1.id, token: 'wrong' });
+    await next(p1b, 'gone');
+    const p1c = await client(port);
+    p1c.send({ op: 'resume', code: hc.code, id: j1.id, token: j1.token });
+    assert.strictEqual((await next(p1c, 'resumed')).id, j1.id);
+    assert.strictEqual((await next(h2, 'back')).id, j1.id);
+    h2.send({ op: 'to', id: j1.id, d: 'hello' });
+    assert.strictEqual((await next(p1c, 'msg')).d, 'hello', 'messages reach the resumed device');
+    p1c.send({ op: 'up', d: 'yo' });
+    assert.strictEqual((await next(h2, 'msg')).d, 'yo');
+
+    // heartbeat is flowing
+    await next(p1c, 'hb', 6000);
+
+    // host drops: players are told, room survives, host takes it back
+    h2.ws.close();
+    await next(p1c, 'hostdrop');
+    assert.ok(rooms.has(hc.code), 'room survives a dropped host');
+    const h3 = await client(port);
+    h3.send({ op: 'resume', code: hc.code, token: hc.token, host: true });
+    const rs = await next(h3, 'resumed');
+    assert.strictEqual(rs.peers.length, 1);
+    await next(p1c, 'hostback');
+    p1c.send({ op: 'up', d: 'again' });
+    assert.strictEqual((await next(h3, 'msg')).d, 'again');
+
+    // clean exit has no grace period
+    p1c.send({ op: 'bye' });
+    assert.strictEqual((await next(h3, 'leave')).id, j1.id);
+
+    // unlock and kick
+    h3.send({ op: 'unlock' });
+    const p2 = await client(port);
+    p2.send({ op: 'join', code: hc.code });
+    const j2 = await next(p2, 'joined');
+    await next(h3, 'peer');
+    h3.send({ op: 'kick', id: j2.id });
+    await next(p2, 'gone');
+    assert.strictEqual((await next(h3, 'leave')).id, j2.id);
+
+    // host says bye: room closes immediately
+    const p3 = await client(port);
+    p3.send({ op: 'join', code: hc.code });
+    await next(p3, 'joined');
+    h3.send({ op: 'bye' });
+    await next(p3, 'closed');
+    assert.ok(!rooms.has(hc.code));
+  }
 
   console.log('relay smoke test passed');
   process.exit(0);

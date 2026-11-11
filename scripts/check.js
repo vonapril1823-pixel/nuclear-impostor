@@ -26,7 +26,7 @@ try { execFileSync(process.execPath, ['--check', path.join(root, 'server.js')]);
 catch (e) { bad('server.js: ' + e.message); }
 
 // 3. files the page and the service worker rely on exist
-for (const f of ['manifest.webmanifest', 'sw.js', 'faces.js', 'favicon.ico', 'vendor/three.min.js', 'icons/apple-touch-icon.png']) {
+for (const f of ['manifest.webmanifest', 'sw.js', 'faces.js', 'favicon.ico', 'vendor/three.min.js', 'vendor/qr.min.js', 'icons/apple-touch-icon.png']) {
   check(fs.existsSync(path.join(root, f)), f + ' exists');
 }
 
